@@ -20,7 +20,6 @@ import Foundation
 
 public enum PerceiveOutputName: String, Codable, Sendable {
     case markdown
-    case markdownFit = "markdown_fit"
     case htmlCleaned = "html_cleaned"
     case htmlRaw = "html_raw"
     case screenshot
@@ -117,6 +116,13 @@ public protocol PerceiveRenderOptions {
     var blockResources: [PerceiveResourceType]? { get }
     var respectRobots: Bool? { get }
     var mobile: Bool? { get }
+    /// Strip site chrome (nav, header, footer, cookie banners) from the
+    /// markdown artifact and main_content extract. API default: true.
+    var onlyMainContent: Bool? { get }
+    /// Respond with the artifact bytes directly (`perceive` only —
+    /// `perceiveBatch` rejects it with 422). Requires exactly one
+    /// artifact-producing output.
+    var directDownload: Bool? { get }
 }
 
 public struct PerceiveOptions: PerceiveRenderOptions, Sendable {
@@ -138,6 +144,8 @@ public struct PerceiveOptions: PerceiveRenderOptions, Sendable {
     public var blockResources: [PerceiveResourceType]?
     public var respectRobots: Bool?
     public var mobile: Bool?
+    public var onlyMainContent: Bool?
+    public var directDownload: Bool?
 
     public init(
         outputs: [PerceiveOutputName]? = nil,
@@ -157,7 +165,9 @@ public struct PerceiveOptions: PerceiveRenderOptions, Sendable {
         pdfOptions: PdfOptions? = nil,
         blockResources: [PerceiveResourceType]? = nil,
         respectRobots: Bool? = nil,
-        mobile: Bool? = nil
+        mobile: Bool? = nil,
+        onlyMainContent: Bool? = nil,
+        directDownload: Bool? = nil
     ) {
         self.outputs = outputs
         self.extract = extract
@@ -177,6 +187,8 @@ public struct PerceiveOptions: PerceiveRenderOptions, Sendable {
         self.blockResources = blockResources
         self.respectRobots = respectRobots
         self.mobile = mobile
+        self.onlyMainContent = onlyMainContent
+        self.directDownload = directDownload
     }
 }
 
@@ -205,6 +217,8 @@ public struct PerceiveBatchOptions: PerceiveRenderOptions, Sendable {
     public var blockResources: [PerceiveResourceType]?
     public var respectRobots: Bool?
     public var mobile: Bool?
+    public var onlyMainContent: Bool?
+    public var directDownload: Bool?
     /// `.manifest` (default) or `.zip` (bundle all artifacts once complete).
     public var outputMode: PerceiveBatchOutputMode?
 
@@ -227,6 +241,8 @@ public struct PerceiveBatchOptions: PerceiveRenderOptions, Sendable {
         blockResources: [PerceiveResourceType]? = nil,
         respectRobots: Bool? = nil,
         mobile: Bool? = nil,
+        onlyMainContent: Bool? = nil,
+        directDownload: Bool? = nil,
         outputMode: PerceiveBatchOutputMode? = nil
     ) {
         self.outputs = outputs
@@ -247,6 +263,8 @@ public struct PerceiveBatchOptions: PerceiveRenderOptions, Sendable {
         self.blockResources = blockResources
         self.respectRobots = respectRobots
         self.mobile = mobile
+        self.onlyMainContent = onlyMainContent
+        self.directDownload = directDownload
         self.outputMode = outputMode
     }
 }
@@ -288,6 +306,11 @@ public struct PerceiveResult: Codable, Equatable, Sendable {
     public let contentHash: String?
     /// 0.0-1.0 render quality score.
     public let renderQuality: Double?
+    /// HTTP status of the final main-document response.
+    public let statusCode: Int?
+    /// Named render-quality deductions that fired, e.g.
+    /// `["http_error": 0.7]`. Empty on a clean render.
+    public let deductions: [String: Double]
     public let cacheHit: Bool
     /// Keyed by output name (e.g. "markdown", "screenshot_full_page").
     public let outputs: [String: V2OutputArtifact]
@@ -299,6 +322,9 @@ public struct PerceiveResult: Codable, Equatable, Sendable {
     public let durationMs: Int?
     public let error: String?
     public let warnings: [String]
+    /// Echo of the request options the server honoured (secrets redacted
+    /// to booleans). `nil` when the server omits it.
+    public let optionsEcho: JSONObject?
 
     enum CodingKeys: String, CodingKey {
         case operationId = "operation_id"
@@ -307,6 +333,8 @@ public struct PerceiveResult: Codable, Equatable, Sendable {
         case urlFinal = "url_final"
         case contentHash = "content_hash"
         case renderQuality = "render_quality"
+        case statusCode = "status_code"
+        case deductions
         case cacheHit = "cache_hit"
         case outputs
         case structured
@@ -316,7 +344,32 @@ public struct PerceiveResult: Codable, Equatable, Sendable {
         case durationMs = "duration_ms"
         case error
         case warnings
+        case optionsEcho = "options_echo"
     }
+}
+
+/// Result of a direct-download perceive call (`perceiveDirect` /
+/// `downloadPerceiveArtifact`): the raw artifact bytes plus the metadata
+/// the server carries on response headers.
+public struct PerceiveDirectResult: Codable, Equatable, Sendable {
+    /// The artifact bytes.
+    public let content: Data
+    /// Artifact media type, e.g. `text/markdown; charset=utf-8`.
+    public let contentType: String
+    /// Filename parsed from `Content-Disposition`
+    /// (`<operation>_<output>.<ext>`). `nil` when the header is absent.
+    public let filename: String?
+    public let operationId: String
+    public let objectKey: String
+    public let cacheHit: Bool
+    /// 0.0-1.0 render quality score. `nil` when the header is absent.
+    public let renderQuality: Double?
+    /// HTTP status of the upstream main-document response.
+    public let sourceStatusCode: Int?
+    /// SHA-256 of the rendered content.
+    public let contentHash: String?
+    /// Number of warnings the render produced. 0 when the header is absent.
+    public let warningsCount: Int
 }
 
 public enum PerceiveBatchStatus: String, Codable, Sendable {

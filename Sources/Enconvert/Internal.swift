@@ -52,6 +52,21 @@ enum Internal {
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
+    /// Extracts the `filename="..."` (or bare-token) value from a
+    /// `Content-Disposition` header value, or `nil` when it carries none.
+    static func filenameFromContentDisposition(_ value: String) -> String? {
+        for part in value.split(separator: ";") {
+            let trimmed = part.trimmingCharacters(in: .whitespaces)
+            guard trimmed.lowercased().hasPrefix("filename=") else { continue }
+            var filename = String(trimmed.dropFirst("filename=".count))
+            if filename.count >= 2, filename.hasPrefix("\""), filename.hasSuffix("\"") {
+                filename = String(filename.dropFirst().dropLast())
+            }
+            return filename.isEmpty ? nil : filename
+        }
+        return nil
+    }
+
     /// Builds a `?a=b&c=d` query string, or `""` when `params` is empty.
     static func queryString(_ params: [(String, String)]) -> String {
         guard !params.isEmpty else { return "" }

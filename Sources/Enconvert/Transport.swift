@@ -37,6 +37,18 @@ final class Transport {
         method: String,
         jsonBody: [String: Any]? = nil
     ) async throws -> (data: Data, statusCode: Int) {
+        let (data, statusCode, _) = try await sendWithHeaders(path: path, method: method, jsonBody: jsonBody)
+        return (data, statusCode)
+    }
+
+    /// Like `send`, but also returns the response headers with names
+    /// lowercased — used by the direct-download paths, whose artifact
+    /// metadata rides on headers instead of a JSON body.
+    func sendWithHeaders(
+        path: String,
+        method: String,
+        jsonBody: [String: Any]? = nil
+    ) async throws -> (data: Data, statusCode: Int, headers: [String: String]) {
         guard let url = URL(string: baseURL + path) else {
             throw EnconvertError.invalidArgument("Invalid URL: \(baseURL)\(path)")
         }
@@ -50,8 +62,14 @@ final class Transport {
         }
 
         let (data, response) = try await session.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-        return (data, statusCode)
+        let httpResponse = response as? HTTPURLResponse
+        var headers: [String: String] = [:]
+        for (name, value) in httpResponse?.allHeaderFields ?? [:] {
+            if let name = name as? String, let value = value as? String {
+                headers[name.lowercased()] = value
+            }
+        }
+        return (data, httpResponse?.statusCode ?? 0, headers)
     }
 
     /// Sends a multipart/form-data request built from a pre-encoded body.

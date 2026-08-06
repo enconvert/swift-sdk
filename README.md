@@ -61,6 +61,17 @@ let batch = try await client.v2.perceiveBatch(
     options: PerceiveBatchOptions(outputs: [.markdown], outputMode: .zip)
 )
 let done = try await client.v2.getPerceiveBatch(batch.jobId)
+
+// Direct download — stream the artifact bytes, no signed-URL round trip.
+// Requires exactly one artifact-producing output:
+let direct = try await client.v2.perceiveDirect(
+    "https://example.com",
+    options: PerceiveOptions(outputs: [.pdf])
+)
+try direct.content.write(to: URL(fileURLWithPath: direct.filename ?? "page.pdf"))
+
+// Re-download a stored artifact of an earlier operation (410 past retention):
+let bytes = try await client.v2.downloadPerceiveArtifact(op.operationId, output: .markdown)
 ```
 
 ### Discover — enumerate a site's URLs (no rendering)

@@ -64,6 +64,51 @@ public final class EnconvertV2 {
         return try Self.toPerceiveBatchResult(data)
     }
 
+    /// Outputs that produce a downloadable artifact (everything except
+    /// `structured`, which is inline JSON).
+    private static let artifactOutputs: [PerceiveOutputName] = [
+        .markdown, .htmlCleaned, .htmlRaw, .screenshot, .screenshotFullPage, .pdf, .links, .images,
+    ]
+
+    /// Render one URL and stream the artifact bytes back directly
+    /// (`direct_download`), skipping the JSON envelope and the signed-URL
+    /// round trip. Requires exactly one artifact-producing output in
+    /// `options.outputs`; metadata is returned via response headers.
+    public func perceiveDirect(_ url: String, options: PerceiveOptions = PerceiveOptions()) async throws -> PerceiveDirectResult {
+        let outputs = options.outputs ?? [.markdown, .structured]
+        let artifactCount = outputs.filter { Self.artifactOutputs.contains($0) }.count
+        guard artifactCount == 1 else {
+            let valid = Self.artifactOutputs.map { $0.rawValue }.joined(separator: ", ")
+            throw EnconvertError.invalidArgument(
+                "perceiveDirect: requires exactly one artifact-producing output (\(valid)); got \(artifactCount)"
+            )
+        }
+        var body = Self.serializePerceiveOptions(options)
+        body["url"] = url
+        body["direct_download"] = true
+        let (data, statusCode, headers) = try await transport.sendWithHeaders(
+            path: "/v2/perceive", method: "POST", jsonBody: body
+        )
+        try Internal.raiseForStatus(statusCode: statusCode, data: data)
+        return Self.toPerceiveDirectResult(data, headers: headers)
+    }
+
+    /// Stream one stored artifact of an earlier perceive operation. `output`
+    /// may be omitted when the operation produced exactly one artifact
+    /// (otherwise 400 listing the available outputs); 410 once the artifact
+    /// passes the plan's retention window.
+    public func downloadPerceiveArtifact(
+        _ operationId: String,
+        output: PerceiveOutputName? = nil
+    ) async throws -> PerceiveDirectResult {
+        var params: [(String, String)] = [("direct_download", "true")]
+        if let output { params.append(("output", output.rawValue)) }
+        let path = "/v2/perceive/\(Internal.percentEncodePathComponent(operationId))\(Internal.queryString(params))"
+        let (data, statusCode, headers) = try await transport.sendWithHeaders(path: path, method: "GET")
+        try Internal.raiseForStatus(statusCode: statusCode, data: data)
+        return Self.toPerceiveDirectResult(data, headers: headers)
+    }
+
     // ------------------------------------------------------------------
     // Discover — enumerate a site's URLs without rendering
     // ------------------------------------------------------------------
@@ -398,6 +443,8 @@ public final class EnconvertV2 {
         if let blockResources = o.blockResources { out["block_resources"] = blockResources.map { $0.rawValue } }
         if let respectRobots = o.respectRobots { out["respect_robots"] = respectRobots }
         if let mobile = o.mobile { out["mobile"] = mobile }
+        if let onlyMainContent = o.onlyMainContent { out["only_main_content"] = onlyMainContent }
+        if let directDownload = o.directDownload { out["direct_download"] = directDownload }
         return out
     }
 
@@ -452,6 +499,15 @@ public final class EnconvertV2 {
                 outputs[name] = toOutputArtifact(artifactDict)
             }
         }
+        let deductionsRaw = jsonDict(data, "deductions") ?? [:]
+        var deductions: [String: Double] = [:]
+        for (name, value) in deductionsRaw {
+            if let doubleValue = value as? Double {
+                deductions[name] = doubleValue
+            } else if let intValue = value as? Int {
+                deductions[name] = Double(intValue)
+            }
+        }
         let status = try jsonRequiredEnum(data, "status", as: PerceiveStatus.self)
         return PerceiveResult(
             operationId: jsonString(data, "operation_id"),
@@ -460,6 +516,8 @@ public final class EnconvertV2 {
             urlFinal: jsonOptString(data, "url_final"),
             contentHash: jsonOptString(data, "content_hash"),
             renderQuality: jsonOptDouble(data, "render_quality"),
+            statusCode: jsonOptInt(data, "status_code"),
+            deductions: deductions,
             cacheHit: jsonBool(data, "cache_hit"),
             outputs: outputs,
             structured: jsonDict(data, "structured").map { JSONObject.from($0) },
@@ -468,7 +526,23 @@ public final class EnconvertV2 {
             costCents: jsonInt(data, "cost_cents"),
             durationMs: jsonOptInt(data, "duration_ms"),
             error: jsonOptString(data, "error"),
-            warnings: jsonStringArray(data, "warnings")
+            warnings: jsonStringArray(data, "warnings"),
+            optionsEcho: jsonDict(data, "options_echo").map { JSONObject.from($0) }
+        )
+    }
+
+    private static func toPerceiveDirectResult(_ data: Data, headers: [String: String]) -> PerceiveDirectResult {
+        PerceiveDirectResult(
+            content: data,
+            contentType: headers["content-type"] ?? "application/octet-stream",
+            filename: headers["content-disposition"].flatMap { Internal.filenameFromContentDisposition($0) },
+            operationId: headers["x-operation-id"] ?? "",
+            objectKey: headers["x-object-key"] ?? "",
+            cacheHit: headers["x-cache-hit"] == "true",
+            renderQuality: headers["x-render-quality"].flatMap { Double($0) },
+            sourceStatusCode: headers["x-source-status-code"].flatMap { Int($0) },
+            contentHash: headers["x-content-hash"],
+            warningsCount: headers["x-warnings-count"].flatMap { Int($0) } ?? 0
         )
     }
 
