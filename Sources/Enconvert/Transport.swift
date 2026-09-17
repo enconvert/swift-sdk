@@ -17,12 +17,14 @@ final class Transport {
     let apiKey: String
     let baseURL: String
     let timeout: TimeInterval
+    let userAgent: String
     private let session: URLSession
 
-    init(apiKey: String, baseURL: String, timeout: TimeInterval) {
+    init(apiKey: String, baseURL: String, timeout: TimeInterval, userAgent: String) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.timeout = timeout
+        self.userAgent = userAgent
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout
@@ -55,6 +57,7 @@ final class Transport {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 
         if let jsonBody {
             request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
@@ -85,6 +88,7 @@ final class Transport {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "content-type")
         request.httpBody = body
 

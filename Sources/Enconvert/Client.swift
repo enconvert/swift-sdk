@@ -21,6 +21,7 @@ public final class Enconvert {
 
     public static let defaultBaseURL = "https://api.enconvert.com"
     public static let defaultTimeout: TimeInterval = 300
+    public static let defaultUserAgent = "enconvert-sdk/\(VERSION) (swift)"
     private static let defaultBatchPollIntervalMs = 5_000
     private static let defaultBatchTimeoutMs = 1_800_000
 
@@ -28,12 +29,18 @@ public final class Enconvert {
     ///   - apiKey: Required. Throws `.invalidArgument` if empty.
     ///   - baseURL: Overrides the API base URL. Trailing slashes are stripped.
     ///   - timeout: Request timeout in seconds. Defaults to 300 (5 minutes).
-    public init(apiKey: String, baseURL: String = Enconvert.defaultBaseURL, timeout: TimeInterval = Enconvert.defaultTimeout) throws {
+    ///   - userAgent: Overrides the `User-Agent` header sent with every API request.
+    public init(
+        apiKey: String,
+        baseURL: String = Enconvert.defaultBaseURL,
+        timeout: TimeInterval = Enconvert.defaultTimeout,
+        userAgent: String = Enconvert.defaultUserAgent
+    ) throws {
         guard !apiKey.isEmpty else {
             throw EnconvertError.invalidArgument("Enconvert: 'apiKey' is required")
         }
         let normalizedBaseURL = Enconvert.stripTrailingSlashes(baseURL)
-        let transport = Transport(apiKey: apiKey, baseURL: normalizedBaseURL, timeout: timeout)
+        let transport = Transport(apiKey: apiKey, baseURL: normalizedBaseURL, timeout: timeout, userAgent: userAgent)
         self.transport = transport
         self.v2 = EnconvertV2(transport: transport)
     }
